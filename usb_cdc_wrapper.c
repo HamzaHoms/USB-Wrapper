@@ -19,11 +19,9 @@ void USB_Init(wUSBD* wusb,   USBD_HandleTypeDef* hUSBD)
   wusb->_tx_sts = USBD_OK;
   wusb->_DataReady_Callback = NULL;
 
-  FIFO_INIT(rx_fifo, USBD_RX_FIFO_SIZE);
-  FIFO_INIT(tx_fifo, USBD_TX_FIFO_SIZE);
+  FIFO_Init(&wusb->_rx_fifo, wusb->_rx_fifo_buf, USBD_RX_FIFO_SIZE);
+  FIFO_Init(&wusb->_tx_fifo, wusb->_tx_fifo_buf, USBD_TX_FIFO_SIZE);
 
-  wusb->_rx_fifo = &rx_fifo;
-  wusb->_tx_fifo = &tx_fifo;
 }
 
 void USB_SetDRCallback(wUSBD* wusb,   void (*dr_callback_func)(void))
@@ -38,7 +36,7 @@ int8_t USB_CDC_Receive_FS_Impl(wUSBD* wusb, uint8_t* buf, uint32_t *len)
   //it reads 'len' bytes from the usb 'buf' and into the wrapper's fifo
   //returns USBD_Busy if the fifo does not have enough space
 
-  BUFFER_Status sts = FIFO_Append(wusb->_rx_fifo, buf, *len);
+  BUFFER_Status sts = FIFO_Append(&wusb->_rx_fifo, buf, *len);
 
   USBD_CDC_SetRxBuffer(wusb->_husb, &buf[0]);
   USBD_CDC_ReceivePacket(wusb->_husb);
@@ -54,7 +52,7 @@ int8_t USB_ReadRXFIFO_G(wUSBD* wusb, uint8_t* buf, uint32_t len)
   //does a guarded pop of the usb rx fifo into buf
   //returns USBD_OK for a successful pop
   //returns USBD_FAIL for an unsuccessful pop
-  BUFFER_Status sts = FIFO_Pop_G(wusb->_rx_fifo, buf, len);
+  BUFFER_Status sts = FIFO_Pop_G(&wusb->_rx_fifo, buf, len);
   if(sts == BUF_ERROR) return USBD_FAIL;
 
   return USBD_OK;
@@ -63,7 +61,7 @@ int8_t USB_ReadRXFIFO_G(wUSBD* wusb, uint8_t* buf, uint32_t len)
 uint32_t USB_ReadRXFIFO(wUSBD* wusb, uint8_t* buf, uint32_t len)
 {
   //does an unguarded pop of the usb rx fifo into buf and returns number of bytes popped
-  return FIFO_Pop(wusb->_rx_fifo, buf, len);
+  return FIFO_Pop(&wusb->_rx_fifo, buf, len);
 }
 
 int8_t _USB_TX(wUSBD* wusb, uint8_t* buf, uint32_t len)
@@ -89,9 +87,7 @@ int8_t USB_WriteTX(wUSBD* wusb, uint8_t* buf, uint32_t len)
 
   if(wusb->_tx_sts == USBD_BUSY && HAL_GetTick() - wusb->_last_tx_tick < USB_CDC_TX_TIMEOUT_MS)
     {
-      NVIC_DisableIRQ(OTG_FS_IRQn);
-      BUFFER_Status sts = FIFO_Append(wusb->_tx_fifo, buf, len);
-      NVIC_EnableIRQ(OTG_FS_IRQn);
+      BUFFER_Status sts = FIFO_Append(&wusb->_tx_fifo, buf, len);
 
       if(sts == BUF_OK) return USBD_OK;
       return USBD_FAIL;
@@ -116,7 +112,7 @@ void USB_CDC_TransmitCplt_FS_Impl(wUSBD* wusb)
     {
       wusb->_last_tx_tick = HAL_GetTick();
 
-      int8_t sts = _USB_TX(wusb, wusb->_tx_buf_int, 0);
+      int8_t sts = _USB_TX(wusb, wusb->_tx_buf_inter, 0);
 
       if(sts == USBD_FAIL)
 	{
@@ -127,15 +123,15 @@ void USB_CDC_TransmitCplt_FS_Impl(wUSBD* wusb)
       wusb->_tx_zlp_req = false;
       return;
     }
-  else if(FIFO_GetCount(wusb->_tx_fifo) == 0)
+  else if(FIFO_GetCount(&wusb->_tx_fifo) == 0)
     {
       wusb->_tx_sts = USBD_OK;
       return;
     }
 
-  uint32_t pop_size = FIFO_Pop(wusb->_tx_fifo, wusb->_tx_buf_int, USBD_TX_PACKET_BUF_SIZE);
+  uint32_t pop_size = FIFO_Pop(&wusb->_tx_fifo, wusb->_tx_buf_inter, USBD_TX_PACKET_BUF_SIZE);
 
   wusb->_last_tx_tick = HAL_GetTick();
 
-  _USB_TX(wusb, wusb->_tx_buf_int, pop_size);
+  _USB_TX(wusb, wusb->_tx_buf_inter, pop_size);
 }

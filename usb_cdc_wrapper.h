@@ -15,16 +15,22 @@
 
 #define USBD_TX_PACKET_BUF_SIZE 64
 
+#define USBD_RX_FIFO_SIZE 512
+#define USBD_TX_FIFO_SIZE 512
+
 typedef struct{
   USBD_HandleTypeDef* _husb;
   int8_t _tx_sts;
   uint32_t _last_tx_tick;
   bool _tx_zlp_req;
 
-  FIFO_t* _rx_fifo;
+  uint8_t _rx_fifo_buf[USBD_RX_FIFO_SIZE];
+  uint8_t _tx_fifo_buf[USBD_TX_FIFO_SIZE];
 
-  FIFO_t* _tx_fifo;
-  uint8_t _tx_buf_int[USBD_TX_PACKET_BUF_SIZE];
+  FIFO_t _rx_fifo;
+  FIFO_t _tx_fifo;
+
+  uint8_t _tx_buf_inter[USBD_TX_PACKET_BUF_SIZE];
 
   void (*_DataReady_Callback)(void);
 } wUSBD;
@@ -40,9 +46,7 @@ void USB_CDC_TransmitCplt_FS_Impl(wUSBD* wUSBD);
 
 
 
-#define USBD_RX_FIFO_SIZE 512
 
-#define USBD_TX_FIFO_SIZE 512
 
 
 #define USB_CDC_TX_TIMEOUT_MS 50
