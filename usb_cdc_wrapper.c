@@ -43,7 +43,7 @@ int8_t USB_CDC_Receive_FS_Impl(wUSBD* wusb, uint8_t* buf, uint32_t *len)
 
   if(sts == BUF_ERROR) return USBD_FAIL;
 
-  if(wusb->_DataReady_Callback != NULL)   wusb->_DataReady_Callback();
+  if(wusb->_DataReady_Callback != NULL) wusb->_DataReady_Callback();
   return USBD_OK;
 }
 
