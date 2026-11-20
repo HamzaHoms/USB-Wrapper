@@ -88,9 +88,15 @@ int8_t USB_WriteTX(wUSBD* wusb, uint8_t* buf, uint32_t len)
   if(wusb->_tx_sts == USBD_BUSY && HAL_GetTick() - wusb->_last_tx_tick < USB_CDC_TX_TIMEOUT_MS)
     {
       BUFFER_Status sts = FIFO_Append(&wusb->_tx_fifo, buf, len);
+      if(sts != BUF_OK) return USBD_FAIL;
 
-      if(sts == BUF_OK) return USBD_OK;
-      return USBD_FAIL;
+      if(wusb->_tx_sts == USBD_OK)
+	{
+	  wusb->_tx_sts = USBD_BUSY;
+	  USB_CDC_TransmitCplt_FS_Impl(wusb);
+	}
+
+      return USBD_OK;
     }
 
   wusb->_tx_sts = USBD_BUSY;
