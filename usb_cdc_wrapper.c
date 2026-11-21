@@ -79,33 +79,42 @@ int8_t _USB_TX(wUSBD* wusb, uint8_t* buf, uint32_t len)
 int8_t USB_WriteTX(wUSBD* wusb, uint8_t* buf, uint32_t len)
 {
   //writes and transmits 'len' bytes of the passed buffer
-  //if the usb peripheral is still busy the bytes are appended to the tx fifo
+  //bytes are appended to the tx fifo, then immediatly popped out if the peripheral is clear
+  //if the peripheral is still busy the ISR pops them
   //if the tx fifo is full, the function returns USBD_FAIL
   //if the usb peripheral is free the transmit is started immediatly
-  //if the transmit fails both the return value and the usb state variable will be USBD_FAIL
-  //if only the return is USBD_fail then that points to a full fifo
+  //if the return is USBD_fail then that means a full fifo or failed TX
 
-  if(wusb->_tx_sts == USBD_BUSY && HAL_GetTick() - wusb->_last_tx_tick < USB_CDC_TX_TIMEOUT_MS)
+  if(HAL_GetTick() - wusb->_last_tx_tick > USB_CDC_TX_TIMEOUT_MS && wusb->_tx_sts == USBD_BUSY)
     {
-      BUFFER_Status sts = FIFO_Append(&wusb->_tx_fifo, buf, len);
-      if(sts != BUF_OK) return USBD_FAIL;
+      __disable_irq();
 
-      if(wusb->_tx_sts == USBD_OK)
-	{
-	  wusb->_tx_sts = USBD_BUSY;
-	  USB_CDC_TransmitCplt_FS_Impl(wusb);
-	}
+      FIFO_Clear(&wusb->_tx_fifo);
+      USBD_LL_FlushEP(wusb->_husb, CDC_IN_EP);
+      ((USBD_CDC_HandleTypeDef*)wusb->_husb->pClassData)->TxState = 0;
+      wusb->_tx_zlp_req = false;
+      wusb->_tx_sts = USBD_OK;
 
-      return USBD_OK;
+      __enable_irq();
     }
 
-  wusb->_tx_sts = USBD_BUSY;
+  if(FIFO_Append(&wusb->_tx_fifo, buf, len) != BUF_OK) return USBD_FAIL;
 
-  if((len % 64) == 0) wusb->_tx_zlp_req = true;
+  if(FIFO_GetCount(&wusb->_tx_fifo) % 64 == 0) wusb->_tx_zlp_req = true;
+  else wusb->_tx_zlp_req = false;
 
-  wusb->_last_tx_tick = HAL_GetTick();
+  if(wusb->_tx_sts == USBD_OK)
+    {
+      wusb->_tx_sts = USBD_BUSY;
 
-  return _USB_TX(wusb, buf, len);
+      uint32_t pop_size = FIFO_Pop(&wusb->_tx_fifo, wusb->_tx_buf_inter, USBD_TX_PACKET_BUF_SIZE);
+
+      wusb->_last_tx_tick = HAL_GetTick();
+
+      return _USB_TX(wusb, wusb->_tx_buf_inter, pop_size);
+    }
+
+  return USBD_OK;
 }
 
 void USB_CDC_TransmitCplt_FS_Impl(wUSBD* wusb)
@@ -114,23 +123,18 @@ void USB_CDC_TransmitCplt_FS_Impl(wUSBD* wusb)
   //it deals with ZLP internally and restarts the transmit if the fifo is still not empty
   //if the transmit fails the usb status variable is set to USBD_FAIL
 
-  if(wusb->_tx_zlp_req)
+  if(FIFO_GetCount(&wusb->_tx_fifo) == 0)
     {
-      wusb->_last_tx_tick = HAL_GetTick();
-
-      int8_t sts = _USB_TX(wusb, wusb->_tx_buf_inter, 0);
-
-      if(sts == USBD_FAIL)
+      if(wusb->_tx_zlp_req)
 	{
-	  wusb->_tx_sts = USBD_FAIL;
+	  wusb->_last_tx_tick = HAL_GetTick();
+
+	  if(_USB_TX(wusb, wusb->_tx_buf_inter, 0) != USBD_OK) return;
+	  wusb->_tx_zlp_req = false;
+
 	  return;
 	}
 
-      wusb->_tx_zlp_req = false;
-      return;
-    }
-  else if(FIFO_GetCount(&wusb->_tx_fifo) == 0)
-    {
       wusb->_tx_sts = USBD_OK;
       return;
     }

@@ -18,6 +18,9 @@
 #define USBD_RX_FIFO_SIZE 512
 #define USBD_TX_FIFO_SIZE 512
 
+#define USB_CDC_TX_TIMEOUT_MS 200
+
+
 typedef struct{
   USBD_HandleTypeDef* _husb;
   int8_t _tx_sts;
@@ -49,6 +52,5 @@ void USB_CDC_TransmitCplt_FS_Impl(wUSBD* wUSBD);
 
 
 
-#define USB_CDC_TX_TIMEOUT_MS 50
 
 #endif /* INC_USB_CDC_WRAPPER_H_ */
